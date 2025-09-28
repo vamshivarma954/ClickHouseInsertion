@@ -3,6 +3,7 @@ package com.example.config;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -16,34 +17,40 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 public class OptimizedWebClientConfig {
     
+    @Value("${clickhouse.url}")
+    private String clickhouseUrl;
+    
     @Bean
     public WebClient optimizedClickHouseClient() {
-        // Connection pool for maximum performance
-     // Large connection pool: 2000 sockets, pending queue 10000
-     ConnectionProvider connectionProvider = ConnectionProvider.builder("clickhouse-pool")
-         .maxConnections(2000)  // 2000 sockets
-         .pendingAcquireMaxCount(10000) // pending queue for bursts
-         .maxIdleTime(Duration.ofSeconds(30))
-         .maxLifeTime(Duration.ofSeconds(60))
-         .pendingAcquireTimeout(Duration.ofSeconds(30))
-         .evictInBackground(Duration.ofSeconds(120))
-         .build();
+        // Ultra-optimized connection pool for ClickHouse 16GB server
+        ConnectionProvider connectionProvider = ConnectionProvider.builder("clickhouse-16gb-pool")
+            .maxConnections(800)  // Optimized for ClickHouse 16GB server (aligned with max_threads=4)
+            .pendingAcquireMaxCount(1600) // Reasonable pending queue
+            .maxIdleTime(Duration.ofSeconds(15)) // Aligned with server settings
+            .maxLifeTime(Duration.ofSeconds(45)) // 45 second connection lifetime
+            .pendingAcquireTimeout(Duration.ofSeconds(2)) // Fast timeout
+            .evictInBackground(Duration.ofSeconds(15)) // Regular eviction
+            .build();
         
-        // Optimized HTTP client
-    HttpClient httpClient = HttpClient.create(connectionProvider)
-        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000)  // 30 second connection timeout
-        .option(ChannelOption.SO_KEEPALIVE, true)
-        .option(ChannelOption.TCP_NODELAY, true)  // Disable Nagle's algorithm
-        .responseTimeout(Duration.ofSeconds(60))  // 60 second response timeout
-        .doOnConnected(conn -> 
-            conn.addHandlerLast(new ReadTimeoutHandler(60, TimeUnit.SECONDS))
-            .addHandlerLast(new WriteTimeoutHandler(60, TimeUnit.SECONDS))
-        );
+        // Ultra-optimized HTTP client for ClickHouse 16GB server
+        HttpClient httpClient = HttpClient.create(connectionProvider)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1500)  // 1.5 second connection timeout
+            .option(ChannelOption.SO_KEEPALIVE, true)
+            .option(ChannelOption.TCP_NODELAY, true)  // Disable Nagle's algorithm
+            .option(ChannelOption.SO_REUSEADDR, true) // Reuse addresses
+            .option(ChannelOption.SO_RCVBUF, 8192) // 8KB receive buffer (optimized for 16GB server)
+            .option(ChannelOption.SO_SNDBUF, 8192) // 8KB send buffer
+            .responseTimeout(Duration.ofSeconds(8))  // 8 second response timeout
+            .doOnConnected(conn -> 
+                conn.addHandlerLast(new ReadTimeoutHandler(8, TimeUnit.SECONDS))
+                .addHandlerLast(new WriteTimeoutHandler(8, TimeUnit.SECONDS))
+            );
         
         return WebClient.builder()
+                .baseUrl(clickhouseUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> {
-                    configurer.defaultCodecs().maxInMemorySize(1024 * 1024); // 1MB buffer
+                    configurer.defaultCodecs().maxInMemorySize(80 * 1024 * 1024); // 80MB buffer (optimized for 16GB server)
                     configurer.defaultCodecs().enableLoggingRequestDetails(false);
                 })
                 .build();
