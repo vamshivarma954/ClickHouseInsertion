@@ -56,22 +56,29 @@ public class NativeConcurrentInsertService {
     }
 
     /**
-     * Run N individual concurrent inserts with optimized batching for maximum throughput.
-     * Uses larger batches aligned with ClickHouse server settings for optimal performance.
+     * Run 6000 individual concurrent inserts - each as a separate HTTP request.
+     * This simulates real-world scenario where 6000 packets could go to different tables.
+     * Each insert is a separate HTTP request to ClickHouse for maximum concurrency.
      */
     public Mono<NativeConcurrentResult> insert6000IndividualConcurrent() {
         System.out.println("=== Starting 6000 Individual Concurrent Inserts ===");
-        System.out.println("Using ultra-optimized batching strategy for ClickHouse 16GB server");
-        System.out.println("Batch size: " + batchSize + " records per request (50 batches total)");
+        System.out.println("Each insert is a separate HTTP request (simulating different table scenario)");
+        System.out.println("Total individual requests: " + insertCount);
         System.out.println("Max concurrency: " + maxConcurrency);
         System.out.println("ClickHouse async_insert: enabled");
         System.out.println("ClickHouse min_insert_block_size_rows: 100000");
         System.out.println("ClickHouse min_insert_block_size_bytes: 67108864");
         System.out.println("ClickHouse max_memory_usage: 2147483648 (2GB)");
         System.out.println("ClickHouse max_threads: 4");
+        System.out.println("Server Config Applied (in ClickHouse config):");
+        System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
+        System.out.println("  - mark_cache_size: 536870912");
+        System.out.println("  - index_mark_cache_size: 268435456");
+        System.out.println("  - uncompressed_cache_size: 0");
+        System.out.println("  - number_of_free_entries_in_pool_to_execute_optimize_entire_partition: 8");
         System.out.println("=====================================================");
         
-        // Build query URI with ClickHouse 16GB server async insert parameters
+        // Build query URI with valid ClickHouse HTTP API parameters for fast individual inserts
         final String targetPath = UriComponentsBuilder.fromPath("/")
                 .queryParam("query", "INSERT INTO " + database + "." + table + " FORMAT JSONEachRow")
                 .queryParam("async_insert", "1")
@@ -85,6 +92,7 @@ public class NativeConcurrentInsertService {
                 .queryParam("max_bytes_before_external_group_by", "268435456")
                 .queryParam("preferred_block_size_bytes", "1048576")
                 .queryParam("max_block_size", "16384")
+                .queryParam("max_threads", "4")
                 .build(false)
                 .toUriString();
 
@@ -92,37 +100,46 @@ public class NativeConcurrentInsertService {
         AtomicInteger errorCount = new AtomicInteger(0);
         AtomicLong startTime = new AtomicLong(System.currentTimeMillis());
 
-        // Create optimized batches aligned with ClickHouse settings
-        int totalBatches = (insertCount + batchSize - 1) / batchSize;
-        
-        return Flux.range(0, totalBatches)
-                .flatMap(batchIndex -> {
-                    int startRecord = batchIndex * batchSize + 1;
-                    int endRecord = Math.min(startRecord + batchSize - 1, insertCount);
-                    
-                    return createAndInsertBatch(startRecord, endRecord, targetPath)
+        // Create 6000 individual insert requests - each as a separate HTTP call
+        return Flux.range(1, insertCount)
+                .flatMap(sequence -> {
+                    return insertIndividualRecord(sequence, targetPath)
+                            .retry(2) // Retry up to 2 times on failure
                             .doOnSuccess(count -> {
-                                successCount.addAndGet(count);
-                                if (successCount.get() % 500 == 0) {
-                                    System.out.println("Completed " + successCount.get() + " individual inserts");
+                                successCount.addAndGet(1);
+                                int currentSuccess = successCount.get();
+                                if (currentSuccess % 100 == 0) {
+                                    long elapsed = System.currentTimeMillis() - startTime.get();
+                                    double rate = currentSuccess * 1000.0 / elapsed;
+                                    System.out.println("Progress: " + currentSuccess + "/" + insertCount + 
+                                                     " inserts completed (" + String.format("%.1f", rate) + " inserts/sec)");
                                 }
                             })
                             .doOnError(err -> {
-                                errorCount.addAndGet(endRecord - startRecord + 1);
-                                System.err.println("Batch " + batchIndex + " failed: " + err.getMessage());
+                                errorCount.addAndGet(1);
+                                System.err.println("Individual insert " + sequence + " failed after retries: " + err.getMessage());
                             })
                             .onErrorResume(e -> Mono.just(0));
-                }, maxConcurrency / batchSize) // Adjust concurrency for batches
+                }, maxConcurrency) // Use controlled concurrency for individual requests
                 .then(Mono.fromCallable(() -> {
                     long endTime = System.currentTimeMillis();
                     long duration = endTime - startTime.get();
                     
                     System.out.println("\n=== INDIVIDUAL CONCURRENT INSERTS COMPLETED ===");
-                    System.out.println("Total Individual Records: " + insertCount);
+                    System.out.println("Total Individual Requests: " + insertCount);
                     System.out.println("Successful: " + successCount.get());
                     System.out.println("Errors: " + errorCount.get());
                     System.out.println("Duration: " + duration + " ms");
-                    System.out.println("Rate: " + (successCount.get() * 1000.0 / duration) + " individual inserts/second");
+                    System.out.println("Rate: " + String.format("%.2f", successCount.get() * 1000.0 / duration) + " individual inserts/second");
+                    System.out.println("Success Rate: " + String.format("%.2f", (successCount.get() * 100.0 / insertCount)) + "%");
+                    System.out.println("Average Time per Insert: " + String.format("%.2f", (double) duration / successCount.get()) + " ms");
+                    System.out.println("ClickHouse Configuration Applied:");
+                    System.out.println("  - async_insert: enabled");
+                    System.out.println("  - max_memory_usage: 2GB");
+                    System.out.println("  - max_threads: 4");
+                    System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
+                    System.out.println("  - mark_cache_size: 512MB");
+                    System.out.println("  - index_mark_cache_size: 256MB");
                     System.out.println("===============================================");
                     
                     return new NativeConcurrentResult(
@@ -135,18 +152,12 @@ public class NativeConcurrentInsertService {
     }
 
     /**
-     * Create and insert a batch of records (optimized for performance).
+     * Insert a single individual record (simulating packet to different table scenario).
      */
-    private Mono<Integer> createAndInsertBatch(int startRecord, int endRecord, String targetPath) {
+    private Mono<Integer> insertIndividualRecord(int sequence, String targetPath) {
         try {
-            StringBuilder jsonBatch = new StringBuilder();
-            
-            for (int i = startRecord; i <= endRecord; i++) {
-                Map<String, Object> record = createRecordData(i);
-                jsonBatch.append(objectMapper.writeValueAsString(record)).append("\n");
-            }
-            
-            String jsonData = jsonBatch.toString();
+            Map<String, Object> record = createRecordData(sequence);
+            String jsonData = objectMapper.writeValueAsString(record);
             
             return webClient.post()
                     .uri(targetPath)
@@ -155,10 +166,10 @@ public class NativeConcurrentInsertService {
                     .bodyValue(jsonData)
                     .retrieve()
                     .toBodilessEntity()
-                    .then(Mono.just(endRecord - startRecord + 1));
+                    .then(Mono.just(1)); // Return 1 for successful individual insert
                     
         } catch (Exception e) {
-            return Mono.error(new RuntimeException("Batch insert failed for records " + startRecord + "-" + endRecord, e));
+            return Mono.error(new RuntimeException("Individual insert failed for record " + sequence, e));
         }
     }
 

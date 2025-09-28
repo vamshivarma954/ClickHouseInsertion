@@ -25,10 +25,11 @@ public class NativeConcurrentInsertController {
      * POST /api/insert-6000-native-concurrent
      * 
      * This endpoint:
-     * - Makes 600 micro-batch HTTP requests to ClickHouse (10 records per batch)
-     * - Each micro-batch contains exactly 10 individual records
+     * - Makes 6000 individual HTTP requests to ClickHouse (1 record per request)
+     * - Each request contains exactly 1 individual record
      * - Uses ClickHouse native HTTP API with JSONEachRow format
-     * - All 600 micro-batch requests run concurrently
+     * - All 6000 individual requests run concurrently (up to 1000 at a time)
+     * - Simulates real-world scenario where packets could go to different tables
      * - Returns performance metrics
      * - Optimized for 6000+ individual inserts per second
      */
