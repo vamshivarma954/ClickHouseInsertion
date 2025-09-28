@@ -1,0 +1,5 @@
+<dependency>
+    <groupId>com.clickhouse</groupId>
+    <artifactId>clickhouse-jdbc</artifactId>
+    <version>0.4.6</version>
+</dependency>
