@@ -17,12 +17,80 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Native ClickHouse HTTP API service for highly concurrent individual insertions.
  * Each insert is a separate HTTP request using JSONEachRow format.
  */
 @Service
 public class NativeConcurrentInsertService {
+    /**
+     * Schedule 6000 individual ClickHouse inserts per second for a given duration, similar to IoTDB6000RPS.
+     * Each insert is a separate HTTP request, rate-limited to 6000/sec.
+     * This method blocks until all scheduled inserts are complete.
+     */
+    public void insert6000RequestsPerSecond(int durationSeconds) throws InterruptedException {
+        final int TARGET_RPS = 6000;
+        final int THREAD_POOL_SIZE = 2000;
+        final long NANO_PER_SECOND = 1_000_000_000L;
+        final long REQUEST_INTERVAL_NANOS = NANO_PER_SECOND / TARGET_RPS;
+
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREAD_POOL_SIZE);
+        AtomicInteger requestCounter = new AtomicInteger(0);
+        AtomicInteger successCounter = new AtomicInteger(0);
+        AtomicInteger errorCounter = new AtomicInteger(0);
+        long startTime = System.nanoTime();
+
+        for (int second = 0; second < durationSeconds; second++) {
+            for (int requestInSecond = 0; requestInSecond < TARGET_RPS; requestInSecond++) {
+                final int recordIndex = (second * TARGET_RPS) + requestInSecond;
+                long delayNanos = (second * NANO_PER_SECOND) + (requestInSecond * REQUEST_INTERVAL_NANOS);
+
+                scheduler.schedule(() -> {
+                    insertIndividualRecord(recordIndex + 1, buildTargetPath())
+                        .doOnSuccess(res -> successCounter.incrementAndGet())
+                        .doOnError(err -> errorCounter.incrementAndGet())
+                        .subscribe();
+                    requestCounter.incrementAndGet();
+                }, delayNanos, TimeUnit.NANOSECONDS);
+            }
+        }
+
+        scheduler.shutdown();
+        boolean completed = scheduler.awaitTermination(durationSeconds + 10, TimeUnit.SECONDS);
+
+        long totalDuration = (System.nanoTime() - startTime) / 1_000_000;
+        int totalRequests = requestCounter.get();
+        double actualRPS = (double) totalRequests / (totalDuration / 1000.0);
+
+        System.out.printf(
+            "Completed %d requests in %d ms. Success: %d, Errors: %d, Actual RPS: %.2f\n",
+            totalRequests, totalDuration, successCounter.get(), errorCounter.get(), actualRPS
+        );
+    }
+
+    // Helper to build the ClickHouse targetPath string (same as used in insert6000IndividualConcurrent)
+    private String buildTargetPath() {
+        return org.springframework.web.util.UriComponentsBuilder.fromPath("/")
+            .queryParam("query", "INSERT INTO " + database + "." + table + " FORMAT JSONEachRow")
+            .queryParam("async_insert", "1")
+            .queryParam("wait_for_async_insert", "0")
+            .queryParam("async_insert_busy_timeout_ms", "500")
+            .queryParam("async_insert_max_data_size", "268435456")
+            .queryParam("min_insert_block_size_rows", "5000")
+            .queryParam("min_insert_block_size_bytes", "1048576")
+            .queryParam("max_memory_usage", "8589934592")
+            .queryParam("max_bytes_before_external_sort", "268435456")
+            .queryParam("max_bytes_before_external_group_by", "268435456")
+            .queryParam("preferred_block_size_bytes", "1048576")
+            .queryParam("max_block_size", "16384")
+            .queryParam("max_threads", "8")
+            .build(false)
+            .toUriString();
+    }
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
