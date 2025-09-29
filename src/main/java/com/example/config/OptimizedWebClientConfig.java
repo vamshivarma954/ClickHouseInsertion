@@ -34,23 +34,23 @@ public class OptimizedWebClientConfig {
         
         // Optimized HTTP client for 6000 individual inserts/sec - REALISTIC SETTINGS
         HttpClient httpClient = HttpClient.create(connectionProvider)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 2000)  // 2 second connection timeout
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)  // 5 second connection timeout
             .option(ChannelOption.SO_KEEPALIVE, true)
             .option(ChannelOption.TCP_NODELAY, true)  // Disable Nagle's algorithm
             .option(ChannelOption.SO_REUSEADDR, true) // Reuse addresses
             .option(ChannelOption.SO_RCVBUF, 4096) // 4KB receive buffer
             .option(ChannelOption.SO_SNDBUF, 4096) // 4KB send buffer
-            .responseTimeout(Duration.ofSeconds(10))  // 10 second response timeout
+            .responseTimeout(Duration.ofSeconds(120))  // 120 second response timeout for long SELECTs
             .doOnConnected(conn -> 
-                conn.addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.SECONDS))
-                .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.SECONDS))
+                conn.addHandlerLast(new ReadTimeoutHandler(120, TimeUnit.SECONDS))
+                .addHandlerLast(new WriteTimeoutHandler(120, TimeUnit.SECONDS))
             );
         
         return WebClient.builder()
                 .baseUrl(clickhouseUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> {
-                    configurer.defaultCodecs().maxInMemorySize(80 * 1024 * 1024); // 80MB buffer (optimized for 16GB server)
+                    configurer.defaultCodecs().maxInMemorySize(512 * 1024 * 1024); // 512MB buffer for large SELECT responses
                     configurer.defaultCodecs().enableLoggingRequestDetails(false);
                 })
                 .build();

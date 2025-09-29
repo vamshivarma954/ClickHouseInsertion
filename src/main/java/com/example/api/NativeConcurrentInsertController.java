@@ -37,8 +37,8 @@ public class NativeConcurrentInsertController {
     public Mono<NativeConcurrentResult> insert6000NativeConcurrent() {
         return nativeService.insert6000IndividualConcurrent()
                 .doOnSuccess(result -> {
-                    System.out.println("Native Concurrent Insert completed successfully!");
-                    System.out.println(result.toString());
+                    // System.out.println("Native Concurrent Insert completed successfully!");
+                    // System.out.println(result.toString());
                 })
                 .doOnError(error -> {
                     System.err.println("Native Concurrent Insert failed: " + error.getMessage());

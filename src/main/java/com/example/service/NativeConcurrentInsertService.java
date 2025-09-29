@@ -129,38 +129,38 @@ public class NativeConcurrentInsertService {
      * Each insert is a separate HTTP request to ClickHouse for maximum concurrency.
      */
     public Mono<NativeConcurrentResult> insert6000IndividualConcurrent() {
-        System.out.println("=== Starting 6000 Individual Concurrent Inserts ===");
-        System.out.println("Each insert is a separate HTTP request (simulating different table scenario)");
-        System.out.println("Total individual requests: " + insertCount);
-        System.out.println("Max concurrency: " + maxConcurrency);
-        System.out.println("ClickHouse async_insert: enabled");
-        System.out.println("ClickHouse min_insert_block_size_rows: 100000");
-        System.out.println("ClickHouse min_insert_block_size_bytes: 67108864");
-        System.out.println("ClickHouse max_memory_usage: 2147483648 (2GB)");
-        System.out.println("ClickHouse max_threads: 4");
-        System.out.println("Server Config Applied (in ClickHouse config):");
-        System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
-        System.out.println("  - mark_cache_size: 536870912");
-        System.out.println("  - index_mark_cache_size: 268435456");
-        System.out.println("  - uncompressed_cache_size: 0");
-        System.out.println("  - number_of_free_entries_in_pool_to_execute_optimize_entire_partition: 8");
-        System.out.println("=====================================================");
+        // System.out.println("=== Starting 6000 Individual Concurrent Inserts ===");
+        // System.out.println("Each insert is a separate HTTP request (simulating different table scenario)");
+        // System.out.println("Total individual requests: " + insertCount);
+        // System.out.println("Max concurrency: " + maxConcurrency);
+        // System.out.println("ClickHouse async_insert: enabled");
+        // System.out.println("ClickHouse min_insert_block_size_rows: 100000");
+        // System.out.println("ClickHouse min_insert_block_size_bytes: 67108864");
+        // System.out.println("ClickHouse max_memory_usage: 2147483648 (2GB)");
+        // System.out.println("ClickHouse max_threads: 4");
+        // System.out.println("Server Config Applied (in ClickHouse config):");
+        // System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
+        // System.out.println("  - mark_cache_size: 536870912");
+        // System.out.println("  - index_mark_cache_size: 268435456");
+        // System.out.println("  - uncompressed_cache_size: 0");
+        // System.out.println("  - number_of_free_entries_in_pool_to_execute_optimize_entire_partition: 8");
+        // System.out.println("=====================================================");
         
         // Build query URI with valid ClickHouse HTTP API parameters for fast individual inserts
         final String targetPath = UriComponentsBuilder.fromPath("/")
                 .queryParam("query", "INSERT INTO " + database + "." + table + " FORMAT JSONEachRow")
                 .queryParam("async_insert", "1")
                 .queryParam("wait_for_async_insert", "0")
-                .queryParam("async_insert_busy_timeout_ms", "200")
-                .queryParam("async_insert_max_data_size", "134217728")
-                .queryParam("min_insert_block_size_rows", "100000")
-                .queryParam("min_insert_block_size_bytes", "67108864")
-                .queryParam("max_memory_usage", "2147483648")
+                .queryParam("async_insert_busy_timeout_ms", "500")
+                .queryParam("async_insert_max_data_size", "268435456")
+                .queryParam("min_insert_block_size_rows", "5000")
+                .queryParam("min_insert_block_size_bytes", "1048576")
+                .queryParam("max_memory_usage", "8589934592")
                 .queryParam("max_bytes_before_external_sort", "268435456")
                 .queryParam("max_bytes_before_external_group_by", "268435456")
                 .queryParam("preferred_block_size_bytes", "1048576")
                 .queryParam("max_block_size", "16384")
-                .queryParam("max_threads", "4")
+                .queryParam("max_threads", "8")
                 .build(false)
                 .toUriString();
 
@@ -179,8 +179,8 @@ public class NativeConcurrentInsertService {
                                 if (currentSuccess % 100 == 0) {
                                     long elapsed = System.currentTimeMillis() - startTime.get();
                                     double rate = currentSuccess * 1000.0 / elapsed;
-                                    System.out.println("Progress: " + currentSuccess + "/" + insertCount + 
-                                                     " inserts completed (" + String.format("%.1f", rate) + " inserts/sec)");
+                                    // System.out.println("Progress: " + currentSuccess + "/" + insertCount + 
+                                                    //  " inserts completed (" + String.format("%.1f", rate) + " inserts/sec)");
                                 }
                             })
                             .doOnError(err -> {
@@ -193,22 +193,22 @@ public class NativeConcurrentInsertService {
                     long endTime = System.currentTimeMillis();
                     long duration = endTime - startTime.get();
                     
-                    System.out.println("\n=== INDIVIDUAL CONCURRENT INSERTS COMPLETED ===");
-                    System.out.println("Total Individual Requests: " + insertCount);
-                    System.out.println("Successful: " + successCount.get());
-                    System.out.println("Errors: " + errorCount.get());
-                    System.out.println("Duration: " + duration + " ms");
-                    System.out.println("Rate: " + String.format("%.2f", successCount.get() * 1000.0 / duration) + " individual inserts/second");
-                    System.out.println("Success Rate: " + String.format("%.2f", (successCount.get() * 100.0 / insertCount)) + "%");
-                    System.out.println("Average Time per Insert: " + String.format("%.2f", (double) duration / successCount.get()) + " ms");
-                    System.out.println("ClickHouse Configuration Applied:");
-                    System.out.println("  - async_insert: enabled");
-                    System.out.println("  - max_memory_usage: 2GB");
-                    System.out.println("  - max_threads: 4");
-                    System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
-                    System.out.println("  - mark_cache_size: 512MB");
-                    System.out.println("  - index_mark_cache_size: 256MB");
-                    System.out.println("===============================================");
+                    // System.out.println("\n=== INDIVIDUAL CONCURRENT INSERTS COMPLETED ===");
+                    // System.out.println("Total Individual Requests: " + insertCount);
+                    // System.out.println("Successful: " + successCount.get());
+                    // System.out.println("Errors: " + errorCount.get());
+                    // System.out.println("Duration: " + duration + " ms");
+                    // System.out.println("Rate: " + String.format("%.2f", successCount.get() * 1000.0 / duration) + " individual inserts/second");
+                    // System.out.println("Success Rate: " + String.format("%.2f", (successCount.get() * 100.0 / insertCount)) + "%");
+                    // System.out.println("Average Time per Insert: " + String.format("%.2f", (double) duration / successCount.get()) + " ms");
+                    // System.out.println("ClickHouse Configuration Applied:");
+                    // System.out.println("  - async_insert: enabled");
+                    // System.out.println("  - max_memory_usage: 2GB");
+                    // System.out.println("  - max_threads: 4");
+                    // System.out.println("  - max_server_memory_usage_to_ram_ratio: 0.60");
+                    // System.out.println("  - mark_cache_size: 512MB");
+                    // System.out.println("  - index_mark_cache_size: 256MB");
+                    // System.out.println("===============================================");
                     
                     return new NativeConcurrentResult(
                             insertCount,
@@ -245,7 +245,7 @@ public class NativeConcurrentInsertService {
      * Create optimized record data for a given sequence number.
      * This method is optimized for performance with minimal object creation.
      */
-    private Map<String, Object> createRecordData(int sequence) {
+    public Map<String, Object> createRecordData(int sequence) {
         int kavachId = 50000 + (sequence % 1000);
         String subPktType = String.format("%04d", sequence % 10000);
         String timestamp = LocalDateTime.now()
