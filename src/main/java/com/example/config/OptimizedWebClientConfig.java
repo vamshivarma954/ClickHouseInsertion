@@ -22,35 +22,39 @@ public class OptimizedWebClientConfig {
     
     @Bean
     public WebClient optimizedClickHouseClient() {
-        // Optimized connection pool for 6000 individual inserts/sec - BALANCED PERFORMANCE
-        ConnectionProvider connectionProvider = ConnectionProvider.builder("clickhouse-individual-pool")
-            .maxConnections(600)  // Balanced for ClickHouse server capacity
-            .pendingAcquireMaxCount(1200) // Slightly larger pending queue
-            .maxIdleTime(Duration.ofSeconds(8)) // Balanced idle timeout
-            .maxLifeTime(Duration.ofSeconds(25)) // 25 second connection lifetime
-            .pendingAcquireTimeout(Duration.ofSeconds(2)) // Faster timeout
-            .evictInBackground(Duration.ofSeconds(8)) // More frequent eviction
+        // Balanced connection pool for streaming and inserts
+        ConnectionProvider connectionProvider = ConnectionProvider.builder("clickhouse-pool")
+            .maxConnections(8)  // Conservative for stability
+            .pendingAcquireMaxCount(256) // Reasonable queue
+            .maxIdleTime(Duration.ofMinutes(5)) // 5 minute idle timeout
+            .maxLifeTime(Duration.ofMinutes(10)) // 10 minute connection lifetime
+            .pendingAcquireTimeout(Duration.ofSeconds(30)) // Longer acquire timeout
+            .evictInBackground(Duration.ofMinutes(2)) // Background eviction
             .build();
         
-        // Optimized HTTP client for 6000 individual inserts/sec - REALISTIC SETTINGS
+        // HTTP client optimized for long streaming responses with robust connection handling
         HttpClient httpClient = HttpClient.create(connectionProvider)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)  // 5 second connection timeout
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)  // 10 second connection timeout
             .option(ChannelOption.SO_KEEPALIVE, true)
             .option(ChannelOption.TCP_NODELAY, true)  // Disable Nagle's algorithm
             .option(ChannelOption.SO_REUSEADDR, true) // Reuse addresses
-            .option(ChannelOption.SO_RCVBUF, 4096) // 4KB receive buffer
-            .option(ChannelOption.SO_SNDBUF, 4096) // 4KB send buffer
-            .responseTimeout(Duration.ofSeconds(120))  // 120 second response timeout for long SELECTs
+            .option(ChannelOption.SO_RCVBUF, 131072) // 128KB receive buffer
+            .option(ChannelOption.SO_SNDBUF, 131072) // 128KB send buffer
+            .option(ChannelOption.SO_LINGER, 0) // Disable SO_LINGER to avoid connection hanging
+            .responseTimeout(Duration.ofHours(2))  // 2 hour response timeout for long streams
             .doOnConnected(conn -> 
-                conn.addHandlerLast(new ReadTimeoutHandler(120, TimeUnit.SECONDS))
-                .addHandlerLast(new WriteTimeoutHandler(120, TimeUnit.SECONDS))
-            );
+                conn.addHandlerLast(new ReadTimeoutHandler(7200, TimeUnit.SECONDS))
+                .addHandlerLast(new WriteTimeoutHandler(60, TimeUnit.SECONDS))
+            )
+            .doOnDisconnected(conn -> {
+                System.out.println("Connection disconnected: " + conn.channel().remoteAddress());
+            });
         
         return WebClient.builder()
                 .baseUrl(clickhouseUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> {
-                    configurer.defaultCodecs().maxInMemorySize(512 * 1024 * 1024); // 512MB buffer for large SELECT responses
+                    configurer.defaultCodecs().maxInMemorySize(1024 * 1024); // 1MB buffer to prevent memory issues
                     configurer.defaultCodecs().enableLoggingRequestDetails(false);
                 })
                 .build();
